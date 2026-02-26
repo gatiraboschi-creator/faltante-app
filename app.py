@@ -6,12 +6,16 @@ from datetime import datetime, date
 import pandas as pd
 import streamlit as st
 
+st.write("APP INICIÓ")
+
 st.set_page_config(
     page_title="Faltantes",
     page_icon="🧾",
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+
 DB_PATH = "faltantes.db"
 
 
