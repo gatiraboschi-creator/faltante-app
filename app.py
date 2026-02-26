@@ -6,6 +6,12 @@ from datetime import datetime, date
 import pandas as pd
 import streamlit as st
 
+st.set_page_config(
+    page_title="Faltantes",
+    page_icon="🧾",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 DB_PATH = "faltantes.db"
 
 
@@ -18,13 +24,6 @@ def require_login():
 
     if st.session_state.auth["logged"]:
         return
-
-    st.set_page_config(
-        page_title="Faltantes",
-        page_icon="🧾",
-        layout="centered",
-        initial_sidebar_state="collapsed",
-    )
 
     st.markdown("## 🔐 Iniciar sesión")
     st.caption("Ingresá usuario y clave para acceder.")
