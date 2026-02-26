@@ -173,12 +173,7 @@ def log_mov(conn, faltante_id: int, accion: str, estado_anterior: str | None, es
 # ============================================================
 # UI config
 # ============================================================
-st.set_page_config(
-    page_title="Faltantes",
-    page_icon="🧾",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+
 
 # Defaults
 CATEGORIAS = ["Almacén", "Verdulería", "Fiambre", "Carnicería", "Limpieza", "Descartables", "Bebidas",  "Panaderia", "Otros"]
