@@ -187,6 +187,14 @@ label, .stMarkdown, .stTextInput label, .stSelectbox label, .stNumberInput label
 </style>
 """, unsafe_allow_html=True)
 
+try:
+    with get_engine().connect() as c:
+        c.execute(text("select 1"))
+    st.success("✅ Conectado a Supabase OK")
+except Exception as e:
+    st.error(f"❌ No conecta: {e}")
+    st.stop()
+
 def init_schema():
     # OJO: en Supabase puede requerir permisos. Ideal hacerlo en SQL Editor.
     exec_("""
