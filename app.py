@@ -6,22 +6,24 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 import streamlit as st
 
-@st.cache_resource
+import streamlit as st
+from sqlalchemy import create_engine, text
+
 @st.cache_resource
 def get_engine():
-    url = st.secrets["db"]["url"]
-
-    # asegurar sslmode=require en la URL
-    if "sslmode=" not in url:
-        url = url + ("&" if "?" in url else "?") + "sslmode=require"
-
-    # además, connect_args por si el driver lo necesita
     return create_engine(
-        url,
+        st.secrets["db"]["url"],
         pool_pre_ping=True,
         pool_recycle=280,
-        connect_args={"sslmode": "require"},
     )
+
+try:
+    with get_engine().connect() as c:
+        c.execute(text("select 1"))
+    st.success("✅ Conectado a Supabase OK")
+except Exception as e:
+    st.error(f"❌ No conecta: {e}")
+    st.stop()
 
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
     with get_engine().connect() as conn:
