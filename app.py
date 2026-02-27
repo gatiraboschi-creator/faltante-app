@@ -2,9 +2,29 @@ import os
 import io
 from datetime import datetime, date
 
-from sqlalchemy import create_engine, text
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine, text
+
+
+@st.cache_resource
+def get_engine():
+    return create_engine(
+        st.secrets["db"]["url"],
+        pool_pre_ping=True,
+        pool_recycle=280,
+    )
+
+
+def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
+    with get_engine().connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params or {})
+
+
+def exec_(sql: str, params: dict | None = None):
+    with get_engine().begin() as conn:
+        conn.execute(text(sql), params or {})
+
 
 def init_schema():
     exec_("""
@@ -77,30 +97,16 @@ def init_schema():
         );
     """)
 
+
 @st.cache_resource
 def ensure_schema():
     init_schema()
     return True
 
+
+# --- IMPORTANTE: esto va DESPUÉS de definir get_engine/exec_/init_schema ---
 ensure_schema()
 
-@st.cache_resource
-def get_engine():
-    return create_engine(
-        st.secrets["db"]["url"],
-        pool_pre_ping=True,
-        pool_recycle=280,
-    )
-    ensure_schema()
-
-
-def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
-    with get_engine().connect() as conn:
-        return pd.read_sql(text(sql), conn, params=params or {})
-
-def exec_(sql: str, params: dict | None = None):
-    with get_engine().begin() as conn:
-        conn.execute(text(sql), params or {})
 
 st.set_page_config(
     page_title="Faltantes",
@@ -108,8 +114,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
-
-
 
 # ============================================================
 # AUTH (Login + Roles) - usa .streamlit/secrets.toml
