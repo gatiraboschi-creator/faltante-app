@@ -1,11 +1,22 @@
 import os
 import io
-import sqlite3
 from datetime import datetime, date
 
+from sqlalchemy import create_engine, text
 import pandas as pd
 import streamlit as st
 
+@st.cache_resource
+def get_engine():
+    return create_engine(st.secrets["db"]["url"], pool_pre_ping=True)
+
+def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
+    with get_engine().connect() as conn:
+        return pd.read_sql(text(sql), conn, params=params or {})
+
+def exec_(sql: str, params: dict | None = None):
+    with get_engine().begin() as conn:
+        conn.execute(text(sql), params or {})
 
 st.set_page_config(
     page_title="Faltantes",
@@ -14,8 +25,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-
-DB_PATH = "faltantes.db"
 
 
 # ============================================================
@@ -62,112 +71,6 @@ def require_login():
 
 require_login()
 
-
-# ============================================================
-# DB helpers
-# ============================================================
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
-
-
-def init_db(conn: sqlite3.Connection):
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS faltantes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        creado_en TEXT NOT NULL,
-        producto TEXT NOT NULL,
-        categoria TEXT,
-        cantidad REAL,
-        unidad TEXT,
-        prioridad TEXT,
-        sector TEXT,
-        proveedor TEXT,
-        estado TEXT NOT NULL,
-        notas TEXT
-    );
-    """)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS productos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT NOT NULL UNIQUE,
-        categoria TEXT,
-        unidad TEXT,
-        proveedor TEXT,
-        activo INTEGER NOT NULL DEFAULT 1,
-        creado_en TEXT NOT NULL,
-        actualizado_en TEXT NOT NULL
-    );
-    """)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS pedidos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        creado_en TEXT NOT NULL,
-        fecha TEXT NOT NULL,
-        estados_incluidos TEXT NOT NULL,
-        texto_wp TEXT NOT NULL
-    );
-    """)
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS pedido_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pedido_id INTEGER NOT NULL,
-        faltante_id INTEGER,
-        producto TEXT NOT NULL,
-        categoria TEXT,
-        cantidad REAL,
-        unidad TEXT,
-        sector TEXT,
-        proveedor TEXT,
-        estado TEXT,
-        prioridad TEXT,
-        creado_en TEXT NOT NULL,
-        FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE
-    );
-    """)
-     
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS movimientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        creado_en TEXT NOT NULL,
-        usuario TEXT NOT NULL,
-        rol TEXT NOT NULL,
-        faltante_id INTEGER NOT NULL,
-        accion TEXT NOT NULL,
-        estado_anterior TEXT,
-        estado_nuevo TEXT,
-        nota TEXT,
-        FOREIGN KEY (faltante_id) REFERENCES faltantes(id) ON DELETE CASCADE
-    );
-    """)
-
-    conn.commit()
-
-
-
-def qdf(conn, sql, params=()):
-    return pd.read_sql_query(sql, conn, params=params)
-
-
-def exec_(conn, sql, params=()):
-    conn.execute(sql, params)
-    conn.commit()
-
-
-
-def log_mov(conn, faltante_id: int, accion: str, estado_anterior: str | None, estado_nuevo: str | None, nota: str = ""):
-    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    usuario = st.session_state.auth.get("user", "desconocido")
-    rol = st.session_state.auth.get("role", "desconocido")
-
-    exec_(conn, """
-        INSERT INTO movimientos (creado_en, usuario, rol, faltante_id, accion, estado_anterior, estado_nuevo, nota)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (ahora, usuario, rol, int(faltante_id), accion, estado_anterior, estado_nuevo, (nota or "").strip()))
 
 
 # ============================================================
@@ -271,9 +174,98 @@ label, .stMarkdown, .stTextInput label, .stSelectbox label, .stNumberInput label
 </style>
 """, unsafe_allow_html=True)
 
-# Conn
-conn = get_conn()
-init_db(conn)
+def init_schema():
+    # OJO: en Supabase puede requerir permisos. Ideal hacerlo en SQL Editor.
+    exec_("""
+        CREATE TABLE IF NOT EXISTS productos (
+            id bigserial PRIMARY KEY,
+            nombre text NOT NULL UNIQUE,
+            categoria text,
+            unidad text,
+            proveedor text,
+            activo boolean NOT NULL DEFAULT true,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            actualizado_en timestamptz NOT NULL DEFAULT now()
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS faltantes (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            producto text NOT NULL,
+            categoria text,
+            cantidad double precision,
+            unidad text,
+            prioridad text,
+            sector text,
+            proveedor text,
+            estado text NOT NULL,
+            notas text
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            fecha date NOT NULL DEFAULT current_date,
+            estados_incluidos text,
+            texto_wp text
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS pedido_items (
+            id bigserial PRIMARY KEY,
+            pedido_id bigint NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+            faltante_id bigint,
+            producto text,
+            categoria text,
+            cantidad double precision,
+            unidad text,
+            sector text,
+            proveedor text,
+            estado text,
+            prioridad text,
+            creado_en timestamptz NOT NULL DEFAULT now()
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS movimientos (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            usuario text,
+            rol text,
+            faltante_id bigint NOT NULL,
+            accion text NOT NULL,
+            estado_anterior text,
+            estado_nuevo text,
+            nota text
+        );
+    """)
+
+init_schema()
+
+def log_mov(faltante_id: int, accion: str, estado_anterior: str = "", estado_nuevo: str = "", nota: str = ""):
+    auth = st.session_state.get("auth", {})
+    exec_("""
+        INSERT INTO movimientos (usuario, rol, faltante_id, accion, estado_anterior, estado_nuevo, nota)
+        VALUES (:usuario, :rol, :fid, :accion, :ea, :en, :nota)
+    """, {
+        "usuario": auth.get("user"),
+        "rol": auth.get("role"),
+        "fid": int(faltante_id),
+        "accion": accion,
+        "ea": estado_anterior or "",
+        "en": estado_nuevo or "",
+        "nota": nota or "",
+    })
+
+
+
+
 
 # ============================================================
 # Roles
@@ -327,38 +319,63 @@ tab1, tab2, tab3, tab4 = st.tabs(
 # Maestro productos
 # ============================================================
 def load_product_master():
-    df_prod = qdf(conn, "SELECT nombre, categoria, unidad, proveedor FROM productos WHERE activo=1 ORDER BY nombre")
-    productos = df_prod["nombre"].dropna().tolist()
-    prod_map = {r["nombre"]: r for _, r in df_prod.iterrows()}
+    df_prod = qdf("""
+        SELECT nombre, categoria, unidad, proveedor
+        FROM productos
+        WHERE activo = true
+        ORDER BY nombre
+    """)
+    productos = df_prod["nombre"].dropna().tolist() if not df_prod.empty else []
+    prod_map = {r["nombre"]: r for _, r in df_prod.iterrows()} if not df_prod.empty else {}
     return productos, prod_map
 
 
-def upsert_producto(conn, nombre: str, categoria: str, unidad: str, proveedor: str) -> str:
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+def upsert_producto(nombre: str, categoria: str, unidad: str, proveedor: str) -> str:
+    nombre = (nombre or "").strip()
+    proveedor = (proveedor or "").strip()
 
-    df_check = qdf(conn, "SELECT categoria FROM productos WHERE nombre = ?", (nombre,))
+    if not nombre:
+        return categoria  # safety
+
+    # Si existe, respetamos categoria guardada (bloqueo real)
+    df_check = qdf(
+        "SELECT categoria FROM productos WHERE nombre = :nombre LIMIT 1",
+        {"nombre": nombre},
+    )
+
     if df_check.empty:
-        exec_(conn, """
-        INSERT INTO productos (nombre, categoria, unidad, proveedor, activo, creado_en, actualizado_en)
-        VALUES (?, ?, ?, ?, 1, ?, ?)
-        """, (nombre, categoria, unidad, proveedor.strip(), now, now))
+        exec_("""
+            INSERT INTO productos (nombre, categoria, unidad, proveedor, activo, creado_en, actualizado_en)
+            VALUES (:nombre, :categoria, :unidad, :proveedor, true, now(), now())
+        """, {
+            "nombre": nombre,
+            "categoria": categoria,
+            "unidad": unidad,
+            "proveedor": proveedor,
+        })
         return categoria
 
-    categoria_guardada = df_check.iloc[0]["categoria"]
-    if categoria_guardada and categoria_guardada != categoria:
-        categoria = categoria_guardada
+    # Ya existe:
+    categoria_guardada = (df_check.iloc[0]["categoria"] or "").strip()
+    if categoria_guardada:
+        categoria = categoria_guardada  # bloquea categoria
 
-    exec_(conn, """
-    UPDATE productos
-    SET unidad = ?, proveedor = ?, actualizado_en = ?
-    WHERE nombre = ?
-    """, (unidad, proveedor.strip(), now, nombre))
+    # Actualizamos unidad/proveedor y timestamp (sin tocar categoria guardada)
+    exec_("""
+        UPDATE productos
+        SET unidad = :unidad,
+            proveedor = :proveedor,
+            actualizado_en = now()
+        WHERE nombre = :nombre
+    """, {
+        "unidad": unidad,
+        "proveedor": proveedor,
+        "nombre": nombre,
+    })
 
     return categoria
-
-
 # ============================================================
-# TAB 1: Cargar
+# TAB 1: Cargar (Supabase)
 # ============================================================
 with tab1:
     st.subheader("Nuevo faltante")
@@ -380,17 +397,17 @@ with tab1:
             key="c_prod_new"
         )
 
-        es_nuevo = bool(producto_nuevo.strip())
-        producto = producto_nuevo.strip() if es_nuevo else producto_sel.strip()
+        es_nuevo = bool((producto_nuevo or "").strip())
+        producto = (producto_nuevo or "").strip() if es_nuevo else (producto_sel or "").strip()
 
         default_categoria = CATEGORIAS[0]
         default_unidad = UNIDADES[0]
         default_proveedor = ""
 
         if producto and producto in prod_map:
-            default_categoria = prod_map[producto]["categoria"] or default_categoria
-            default_unidad = prod_map[producto]["unidad"] or default_unidad
-            default_proveedor = prod_map[producto]["proveedor"] or default_proveedor
+            default_categoria = prod_map[producto].get("categoria") or default_categoria
+            default_unidad = prod_map[producto].get("unidad") or default_unidad
+            default_proveedor = prod_map[producto].get("proveedor") or default_proveedor
 
         producto_en_maestro = (not es_nuevo) and (producto in prod_map)
 
@@ -433,49 +450,73 @@ with tab1:
         guardar = st.form_submit_button("💾 Guardar", use_container_width=True)
 
     if guardar:
-        if not producto:
+        if not (producto or "").strip():
             st.error("El campo Producto es obligatorio.")
         else:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            producto = producto.strip()
+            proveedor = (proveedor or "").strip()
+            notas = (notas or "").strip()
 
-            categoria = upsert_producto(conn, producto, categoria, unidad, proveedor)
+            # 1) Upsert en maestro (NO usa conn)
+            categoria = upsert_producto(producto, categoria, unidad, proveedor)
 
-            df_exist = qdf(conn, """
+            # 2) Si ya existe faltante abierto (Pendiente/Pedido) -> sumar cantidad
+            df_exist = qdf("""
                 SELECT id, cantidad
                 FROM faltantes
-                WHERE producto = ?
-                AND categoria = ?
-                AND unidad = ?
-                AND sector = ?
-                AND estado IN ('Pendiente','Pedido')
+                WHERE producto = :producto
+                  AND categoria = :categoria
+                  AND unidad = :unidad
+                  AND sector = :sector
+                  AND estado IN ('Pendiente','Pedido')
                 ORDER BY id DESC
                 LIMIT 1
-            """, (producto, categoria, unidad, sector))
+            """, {
+                "producto": producto,
+                "categoria": categoria,
+                "unidad": unidad,
+                "sector": sector
+            })
 
             if not df_exist.empty:
                 fid = int(df_exist.iloc[0]["id"])
                 cant_old = float(df_exist.iloc[0]["cantidad"] or 0)
                 cant_new = cant_old + float(cantidad)
 
-                exec_(conn, "UPDATE faltantes SET cantidad=? WHERE id=?", (cant_new, fid))
+                exec_(
+                    "UPDATE faltantes SET cantidad=:cantidad WHERE id=:id",
+                    {"cantidad": cant_new, "id": fid}
+                )
+
+                # (opcional) log movimiento si tenés tabla movimientos
+                # exec_("INSERT INTO movimientos (...) VALUES (...)", {...})
+
                 st.success(f"✅ Ya existía → sumé cantidad: {cant_new:g} {unidad}")
                 st.rerun()
 
-            exec_(conn, """
+            # 3) Insert nuevo faltante
+            exec_("""
                 INSERT INTO faltantes
                 (creado_en, producto, categoria, cantidad, unidad, prioridad, sector, proveedor, estado, notas)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                now, producto, categoria, float(cantidad), unidad, prioridad, sector,
-                proveedor.strip(), "Pendiente", notas.strip()
-            ))
+                VALUES
+                (now(), :producto, :categoria, :cantidad, :unidad, :prioridad, :sector, :proveedor, 'Pendiente', :notas)
+            """, {
+                "producto": producto,
+                "categoria": categoria,
+                "cantidad": float(cantidad),
+                "unidad": unidad,
+                "prioridad": prioridad,
+                "sector": sector,
+                "proveedor": proveedor,
+                "notas": notas
+            })
 
             st.success("✅ Cargado correctamente")
-            st.rerun()
+            st.rerun()      
 
 
 # ============================================================
-# TAB 2: Lista + WhatsApp + Recibir Todo
+# TAB 2: Lista + WhatsApp + Recibir Todo (Supabase)
 # ============================================================
 with tab2:
     sub1, sub2 = st.tabs(["📋 Lista", "🧾 Pedido WhatsApp"])
@@ -485,7 +526,6 @@ with tab2:
         st.subheader("Lista")
 
         with st.expander("🔎 Filtros", expanded=False):
-            # Por rol: si no es admin, ocultamos filtro sector (ya viene fijo)
             role = st.session_state.auth["role"]
             is_admin = role == "Admin"
 
@@ -501,26 +541,27 @@ with tab2:
             f_proveedor = st.text_input("Proveedor contiene", value="", key="f_proveedor")
             buscar = st.text_input("Buscar producto", value="", key="f_buscar")
 
-        df = qdf(conn, "SELECT * FROM faltantes ORDER BY id DESC")
+        # Traer todo desde Supabase
+        df = qdf("SELECT * FROM faltantes ORDER BY id DESC")
 
         # Filtro por rol automático
         role = st.session_state.auth["role"]
-        if role in ["Cocina", "Barra", "Salón"]:
+        if role in ["Cocina", "Barra", "Salón"] and not df.empty:
             df = df[df["sector"] == role]
 
         # Apply filters
-        if f_estado:
+        if f_estado and not df.empty:
             df = df[df["estado"].isin(f_estado)]
-        if f_sector:
+        if f_sector and not df.empty:
             df = df[df["sector"].isin(f_sector)]
-        if f_categoria:
+        if f_categoria and not df.empty:
             df = df[df["categoria"].isin(f_categoria)]
-        if f_prioridad:
+        if f_prioridad and not df.empty:
             df = df[df["prioridad"].isin(f_prioridad)]
-        if f_proveedor.strip():
+        if f_proveedor.strip() and not df.empty:
             df = df[df["proveedor"].fillna("").str.contains(f_proveedor.strip(), case=False, na=False)]
-        if buscar.strip():
-            df = df[df["producto"].str.contains(buscar.strip(), case=False, na=False)]
+        if buscar.strip() and not df.empty:
+            df = df[df["producto"].fillna("").str.contains(buscar.strip(), case=False, na=False)]
 
         cA, cB, cC = st.columns(3)
         cA.metric("Pendientes", int((df["estado"] == "Pendiente").sum()) if not df.empty else 0)
@@ -532,11 +573,15 @@ with tab2:
         if not df_pedido.empty:
             if st.button("📦 Recibir TODO el pedido", use_container_width=True, key="btn_recibir_todo"):
                 ids = df_pedido["id"].astype(int).tolist()
-                placeholders = ",".join(["?"] * len(ids))
-                exec_(conn, f"UPDATE faltantes SET estado='Recibido' WHERE id IN ({placeholders})", tuple(ids))
 
+                exec_(
+                    "UPDATE faltantes SET estado='Recibido' WHERE id = ANY(:ids::bigint[])",
+                    {"ids": ids}
+                )
+
+                # log (si tenés log_mov ya adaptado sin conn)
                 for fid_ in ids:
-                    log_mov(conn, fid_, "RECIBIR_TODO", "Pedido", "Recibido")
+                    log_mov(fid_, "RECIBIR_TODO", "Pedido", "Recibido")
 
                 st.success(f"✅ {len(ids)} ítems marcados como Recibido.")
                 st.rerun()
@@ -594,39 +639,48 @@ with tab2:
                 with b1:
                     if st.button("✅ Pedido", key=f"card_ped_{fid}", use_container_width=True,
                                  disabled=(estado in ["Recibido", "Anulado"])):
+
                         estado_old = estado
                         estado_new = "Pedido"
-                        exec_(conn, "UPDATE faltantes SET estado=? WHERE id=?", (estado_new, fid))
-                        log_mov(conn, fid, "CAMBIO_ESTADO", estado_old, estado_new)
+
+                        exec_(
+                            "UPDATE faltantes SET estado=:e WHERE id=:id",
+                            {"e": estado_new, "id": fid}
+                        )
+                        log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
                         st.rerun()
 
                 with b2:
                     if st.button("📦 Recibido", key=f"card_rec_{fid}", use_container_width=True,
                                  disabled=(estado in ["Recibido", "Anulado"])):
+
                         estado_old = estado
                         estado_new = "Recibido"
-                        exec_(conn, "UPDATE faltantes SET estado=? WHERE id=?", (estado_new, fid))
-                        log_mov(conn, fid, "CAMBIO_ESTADO", estado_old, estado_new)
+
+                        exec_(
+                            "UPDATE faltantes SET estado=:e WHERE id=:id",
+                            {"e": estado_new, "id": fid}
+                        )
+                        log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
                         st.rerun()
 
                 with b3:
                     if is_admin:
                         if st.button("🗑️ Anular", key=f"card_anu_{fid}", use_container_width=True,
                                       disabled=(estado == "Anulado")):
+
                             estado_old = estado
                             estado_new = "Anulado"
-                            exec_(conn, "UPDATE faltantes SET estado=? WHERE id=?", (estado_new, fid))
-                            log_mov(conn, fid, "CAMBIO_ESTADO", estado_old, estado_new)
+
+                            exec_(
+                                "UPDATE faltantes SET estado=:e WHERE id=:id",
+                                {"e": estado_new, "id": fid}
+                            )
+                            log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
                             st.rerun()
                     else:
-                        st.button(
-                            "🗑️ Anular",
-                            use_container_width=True,
-                            disabled=True,
-                            key=f"card_anu_disabled_{fid}"
-                        )
+                        st.button("🗑️ Anular", use_container_width=True, disabled=True, key=f"card_anu_disabled_{fid}")
 
-                
                 st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------- SUBTAB WHATSAPP ----------
@@ -640,19 +694,21 @@ with tab2:
             key="wp_estados"
         )
 
-        # Siempre traemos sólo Pendiente/Pedido (limpio), luego aplicamos el multiselect
-        df_ped = qdf(conn, """
-            SELECT * FROM faltantes
+        # Traemos Pendiente/Pedido desde DB
+        df_ped = qdf("""
+            SELECT *
+            FROM faltantes
             WHERE estado IN ('Pendiente','Pedido')
             ORDER BY categoria, producto
         """)
 
         # Filtro por rol
         role = st.session_state.auth["role"]
-        if role in ["Cocina", "Barra", "Salón"]:
+        if role in ["Cocina", "Barra", "Salón"] and not df_ped.empty:
             df_ped = df_ped[df_ped["sector"] == role]
 
-        if estados_incluir:
+        # Estados a incluir
+        if estados_incluir and not df_ped.empty:
             df_ped = df_ped[df_ped["estado"].isin(estados_incluir)]
 
         if df_ped.empty:
@@ -662,27 +718,19 @@ with tab2:
 
             df_ped["categoria"] = df_ped["categoria"].fillna("").astype(str).str.strip()
             df_ped.loc[df_ped["categoria"] == "", "categoria"] = "OTROS"
-
             df_ped = df_ped.sort_values(["categoria", "producto"])
 
             lineas = [f"🧾 PEDIDO {hoy}", ""]
             for rubro, grub in df_ped.groupby("categoria", sort=False):
                 lineas.append(str(rubro).upper())
                 for _, r in grub.iterrows():
-                    lineas.append(f"- {r['producto']} x{r['cantidad']:g} {r['unidad']}")
+                    lineas.append(f"- {r['producto']} x{float(r['cantidad'] or 0):g} {r['unidad']}")
                 lineas.append("")
 
             texto = "\n".join(lineas).strip()
 
-            # Forzar actualización del texto aunque tenga key
-            st.session_state["wp_texto_comercial"] = texto
-
-            st.text_area(
-                "Texto listo para WhatsApp",
-                value=st.session_state["wp_texto_comercial"],
-                height=280,
-                key="wp_texto_comercial"
-            )
+            # SIN key para que se actualice siempre al cambiar filtros
+            st.text_area("Texto listo para WhatsApp", value=texto, height=280)
 
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -694,56 +742,68 @@ with tab2:
                     use_container_width=True,
                     key="wp_download"
                 )
+
             with col2:
                 if st.button("💾 Guardar pedido", use_container_width=True, key="wp_guardar"):
-                    ahora = datetime.now()
-                    creado_en = ahora.strftime("%Y-%m-%d %H:%M")
-                    fecha_ = ahora.strftime("%Y-%m-%d")
                     estados_str = ",".join(estados_incluir)
 
-                    exec_(conn, """
-                    INSERT INTO pedidos (creado_en, fecha, estados_incluidos, texto_wp)
-                    VALUES (?, ?, ?, ?)
-                    """, (creado_en, fecha_, estados_str, texto))
+                    # Insert pedido y obtener ID (Postgres: RETURNING)
+                    with get_engine().begin() as c:
+                        res = c.execute(
+                            text("""
+                                INSERT INTO pedidos (fecha, estados_incluidos, texto_wp)
+                                VALUES (current_date, :estados, :texto)
+                                RETURNING id
+                            """),
+                            {"estados": estados_str, "texto": texto}
+                        )
+                        pedido_id = int(res.scalar_one())
 
-                    pedido_id = int(qdf(conn, "SELECT last_insert_rowid() AS id").iloc[0]["id"])
-
+                    # Insert items
+                    creado_en = datetime.now()
                     for _, r in df_ped.iterrows():
-                        exec_(conn, """
-                        INSERT INTO pedido_items (
-                            pedido_id, faltante_id, producto, categoria, cantidad, unidad,
-                            sector, proveedor, estado, prioridad, creado_en
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            pedido_id,
-                            int(r["id"]) if pd.notna(r["id"]) else None,
-                            r.get("producto"),
-                            r.get("categoria"),
-                            float(r.get("cantidad") or 0),
-                            r.get("unidad"),
-                            r.get("sector"),
-                            r.get("proveedor"),
-                            r.get("estado"),
-                            r.get("prioridad"),
-                            creado_en
-                        ))
+                        exec_("""
+                            INSERT INTO pedido_items (
+                                pedido_id, faltante_id, producto, categoria, cantidad, unidad,
+                                sector, proveedor, estado, prioridad, creado_en
+                            ) VALUES (
+                                :pedido_id, :faltante_id, :producto, :categoria, :cantidad, :unidad,
+                                :sector, :proveedor, :estado, :prioridad, :creado_en
+                            )
+                        """, {
+                            "pedido_id": pedido_id,
+                            "faltante_id": int(r["id"]) if pd.notna(r["id"]) else None,
+                            "producto": r.get("producto"),
+                            "categoria": r.get("categoria"),
+                            "cantidad": float(r.get("cantidad") or 0),
+                            "unidad": r.get("unidad"),
+                            "sector": r.get("sector"),
+                            "proveedor": r.get("proveedor"),
+                            "estado": r.get("estado"),
+                            "prioridad": r.get("prioridad"),
+                            "creado_en": creado_en
+                        })
 
                     st.success(f"✅ Pedido guardado (#{pedido_id})")
                     st.rerun()
+
             with col3:
                 if st.button("✅ Pend→Pedido", use_container_width=True, key="wp_btn_marcar"):
                     ids = df_ped[df_ped["estado"] == "Pendiente"]["id"].astype(int).tolist()
                     if ids:
-                        placeholders = ",".join(["?"] * len(ids))
-                        exec_(conn, f"UPDATE faltantes SET estado='Pedido' WHERE id IN ({placeholders})", tuple(ids))
+                        exec_(
+                            "UPDATE faltantes SET estado='Pedido' WHERE id = ANY(:ids::bigint[])",
+                            {"ids": ids}
+                        )
                         st.success(f"✅ {len(ids)} ítems pasaron a 'Pedido'.")
                         st.rerun()
                     else:
                         st.info("No había Pendientes para marcar.")
 
 
-# ============================================================
-# TAB 3: Pedidos por fecha + Backup/Restore DB
+
+ # ============================================================
+# TAB 3: Pedidos por fecha + Historial (Supabase)
 # ============================================================
 with tab3:
     st.subheader("📅 Pedidos por fecha")
@@ -755,12 +815,15 @@ with tab3:
     with c2:
         hasta = st.date_input("Hasta", value=hoy, key="p_hasta")
 
-    df_p = qdf(conn, """
-    SELECT id, creado_en, fecha, estados_incluidos
-    FROM pedidos
-    WHERE fecha BETWEEN ? AND ?
-    ORDER BY id DESC
-    """, (desde.strftime("%Y-%m-%d"), hasta.strftime("%Y-%m-%d")))
+    df_p = qdf("""
+        SELECT id, creado_en, fecha, estados_incluidos
+        FROM pedidos
+        WHERE fecha BETWEEN :desde AND :hasta
+        ORDER BY id DESC
+    """, {
+        "desde": desde,
+        "hasta": hasta
+    })
 
     if df_p.empty:
         st.info("No hay pedidos guardados en ese rango.")
@@ -772,17 +835,18 @@ with tab3:
             key="p_sel"
         )
 
-        cab = qdf(conn, "SELECT * FROM pedidos WHERE id=?", (int(pid),)).iloc[0]
-        st.write(f"**Creado:** {cab['creado_en']}  |  **Estados incluidos:** {cab['estados_incluidos']}")
+        cab = qdf("SELECT * FROM pedidos WHERE id=:id", {"id": int(pid)}).iloc[0]
+        st.write(f"**Creado:** {cab['creado_en']}  |  **Estados incluidos:** {cab.get('estados_incluidos', '')}")
 
-        st.text_area("Texto WhatsApp guardado", value=cab["texto_wp"], height=260, key="p_texto")
+        st.text_area("Texto WhatsApp guardado", value=str(cab["texto_wp"]), height=260, key="p_texto")
 
-        df_items = qdf(conn, """
-        SELECT producto, categoria, cantidad, unidad, sector, proveedor
-        FROM pedido_items
-        WHERE pedido_id = ?
-        ORDER BY categoria, producto
-        """, (int(pid),))
+        df_items = qdf("""
+            SELECT producto, categoria, cantidad, unidad, sector, proveedor
+            FROM pedido_items
+            WHERE pedido_id = :pid
+            ORDER BY categoria, producto
+        """, {"pid": int(pid)})
+
         st.dataframe(df_items, use_container_width=True)
 
         st.download_button(
@@ -794,7 +858,6 @@ with tab3:
             key="p_dl"
         )
 
-    
     st.divider()
     st.subheader("📜 Historial de movimientos")
 
@@ -805,7 +868,7 @@ with tab3:
         hist_limite = st.selectbox("Mostrar", [50, 100, 200, 500], index=1, key="hist_limite")
 
     # Traemos movimientos + nombre del producto
-    df_hist = qdf(conn, f"""
+    df_hist = qdf(f"""
         SELECT
             m.creado_en,
             m.usuario,
@@ -822,7 +885,7 @@ with tab3:
         LIMIT {int(hist_limite)}
     """)
 
-    if hist_buscar.strip():
+    if hist_buscar.strip() and not df_hist.empty:
         bb = hist_buscar.strip().lower()
         df_hist = df_hist[df_hist["producto"].fillna("").str.lower().str.contains(bb, na=False)]
 
@@ -831,25 +894,27 @@ with tab3:
     st.markdown("### 🔎 Historial de un ítem")
     fid_lookup = st.number_input("Faltante ID", min_value=1, step=1, value=1, key="hist_fid")
 
-    df_one = qdf(conn, """
+    df_one = qdf("""
         SELECT creado_en, usuario, rol, accion, estado_anterior, estado_nuevo, nota
         FROM movimientos
-        WHERE faltante_id = ?
+        WHERE faltante_id = :fid
         ORDER BY id DESC
         LIMIT 200
-    """, (int(fid_lookup),))
+    """, {"fid": int(fid_lookup)})
 
     if df_one.empty:
         st.info("Sin movimientos para ese ID.")
     else:
-        st.dataframe(df_one, use_container_width=True)        
+        st.dataframe(df_one, use_container_width=True)  
     
   
+import zipfile
+
 # ============================================================
-# TAB 4: Maestro de Productos (listar / editar / eliminar)
+# TAB 4: Maestro de Productos + Backup (Supabase)
 # ============================================================
 with tab4:
-    st.subheader("🛠 Maestro de Productos")
+    st.subheader("🛠 Productos / Backup")
 
     role = st.session_state.auth["role"]
     is_admin = role == "Admin"
@@ -860,20 +925,14 @@ with tab4:
     st.markdown("### 📋 Productos cargados")
 
     col_f1, col_f2 = st.columns(2)
-
     with col_f1:
         q = st.text_input("Buscar producto / proveedor", key="prod_q")
-
     with col_f2:
-        cat_filter = st.selectbox(
-            "Filtrar categoría",
-            ["Todas"] + CATEGORIAS,
-            key="prod_cat_filter"
-        )
+        cat_filter = st.selectbox("Filtrar categoría", ["Todas"] + CATEGORIAS, key="prod_cat_filter")
 
     solo_activos = st.checkbox("Solo activos", value=True, key="prod_solo_activos")
 
-    df_prod = qdf(conn, """
+    df_prod = qdf("""
         SELECT id, nombre, categoria, unidad, proveedor, activo
         FROM productos
         ORDER BY nombre
@@ -890,7 +949,7 @@ with tab4:
 
     # Filtros
     if solo_activos:
-        df_prod = df_prod[df_prod["activo"] == 1]
+        df_prod = df_prod[df_prod["activo"] == True]
 
     if cat_filter != "Todas":
         df_prod = df_prod[df_prod["categoria"] == cat_filter]
@@ -902,10 +961,7 @@ with tab4:
             df_prod["proveedor"].str.lower().str.contains(qq, na=False)
         ]
 
-    st.dataframe(
-        df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]],
-        use_container_width=True
-    )
+    st.dataframe(df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]], use_container_width=True)
 
     st.divider()
 
@@ -924,7 +980,6 @@ with tab4:
     prod = df_prod[df_prod["id"] == prod_id].iloc[0]
 
     with st.form("form_edit_producto"):
-
         nombre = st.text_input("Nombre", value=prod["nombre"])
         categoria = st.selectbox(
             "Categoría",
@@ -942,46 +997,62 @@ with tab4:
         guardar = st.form_submit_button("💾 Guardar cambios", use_container_width=True)
 
     if guardar:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        nuevo_nombre = (nombre or "").strip()
+        if not nuevo_nombre:
+            st.error("El nombre no puede estar vacío.")
+            st.stop()
 
-        # Si el nombre cambia y ya existe otro igual -> unificar
-        df_check = qdf(conn, "SELECT id FROM productos WHERE nombre=?", (nombre.strip(),))
-        if not df_check.empty and int(df_check.iloc[0]["id"]) != prod_id:
+        # Si el nombre cambia y ya existe otro igual -> bloquear
+        df_check = qdf(
+            "SELECT id FROM productos WHERE lower(nombre)=lower(:n) LIMIT 1",
+            {"n": nuevo_nombre}
+        )
+        if not df_check.empty and int(df_check.iloc[0]["id"]) != int(prod_id):
             st.error("Ya existe un producto con ese nombre. No se puede duplicar.")
             st.stop()
 
-        # Actualizar maestro
-        exec_(conn, """
-            UPDATE productos
-            SET nombre=?, categoria=?, unidad=?, proveedor=?, activo=?, actualizado_en=?
-            WHERE id=?
-        """, (
-            nombre.strip(),
-            categoria,
-            unidad,
-            proveedor.strip(),
-            1 if activo else 0,
-            now,
-            prod_id
-        ))
+        old_name = prod["nombre"]
 
-        # Actualizar faltantes
-        exec_(conn, """
+        # Actualizar maestro
+        exec_("""
+            UPDATE productos
+            SET nombre=:nombre,
+                categoria=:categoria,
+                unidad=:unidad,
+                proveedor=:proveedor,
+                activo=:activo,
+                actualizado_en=now()
+            WHERE id=:id
+        """, {
+            "nombre": nuevo_nombre,
+            "categoria": categoria,
+            "unidad": unidad,
+            "proveedor": (proveedor or "").strip(),
+            "activo": bool(activo),
+            "id": int(prod_id)
+        })
+
+        # Propagar a faltantes existentes por nombre viejo (si cambió)
+        exec_("""
             UPDATE faltantes
-            SET producto=?, categoria=?, unidad=?, proveedor=?
-            WHERE producto=?
-        """, (
-            nombre.strip(),
-            categoria,
-            unidad,
-            proveedor.strip(),
-            prod["nombre"]
-        ))
+            SET producto=:nuevo,
+                categoria=:categoria,
+                unidad=:unidad,
+                proveedor=:proveedor
+            WHERE producto=:viejo
+        """, {
+            "nuevo": nuevo_nombre,
+            "viejo": old_name,
+            "categoria": categoria,
+            "unidad": unidad,
+            "proveedor": (proveedor or "").strip()
+        })
 
         st.success("✅ Producto actualizado en maestro y faltantes.")
         st.rerun()
 
     st.divider()
+
     # ==========================
     # ELIMINAR PRODUCTO
     # ==========================
@@ -990,7 +1061,6 @@ with tab4:
     if not is_admin:
         st.info("Solo el Admin puede eliminar productos.")
     else:
-        # flag propio (NO es key de widget)
         if "confirm_delete_prod_flag" not in st.session_state:
             st.session_state["confirm_delete_prod_flag"] = False
 
@@ -998,22 +1068,23 @@ with tab4:
             st.session_state["confirm_delete_prod_flag"] = True
 
         if st.session_state["confirm_delete_prod_flag"]:
-            st.warning("⚠ Esto eliminará el producto del maestro (solo si NO tiene faltantes asociados).")
+            st.warning("⚠ Elimina el producto del maestro SOLO si NO tiene faltantes asociados.")
 
             c1, c2 = st.columns(2)
-
             with c1:
                 if st.button("✅ Confirmar eliminación", use_container_width=True, key="btn_confirm_delete_prod"):
-                    # Ver si tiene faltantes asociados
-                    df_rel = qdf(conn, "SELECT COUNT(*) as total FROM faltantes WHERE producto=?", (prod["nombre"],))
-                    total_rel = int(df_rel.iloc[0]["total"])
+                    df_rel = qdf(
+                        "SELECT COUNT(*) AS total FROM faltantes WHERE producto=:p",
+                        {"p": prod["nombre"]}
+                    )
+                    total_rel = int(df_rel.iloc[0]["total"]) if not df_rel.empty else 0
 
                     if total_rel > 0:
                         st.error(f"No se puede eliminar. Tiene {total_rel} faltantes asociados.")
                         st.session_state["confirm_delete_prod_flag"] = False
                         st.stop()
 
-                    exec_(conn, "DELETE FROM productos WHERE id=?", (prod_id,))
+                    exec_("DELETE FROM productos WHERE id=:id", {"id": int(prod_id)})
                     st.success("🗑 Producto eliminado.")
                     st.session_state["confirm_delete_prod_flag"] = False
                     st.rerun()
@@ -1021,31 +1092,94 @@ with tab4:
             with c2:
                 if st.button("Cancelar", use_container_width=True, key="btn_cancel_delete_prod"):
                     st.session_state["confirm_delete_prod_flag"] = False
-                    st.rerun()  
+                    st.rerun()
+
     st.divider()
-    st.subheader("💾 Backup / Restaurar base de datos")
 
-    # Descargar backup
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            st.download_button(
-                "⬇️ Descargar backup faltantes.db",
-                data=f,
-                file_name="faltantes_backup.db",
-                mime="application/octet-stream",
-                use_container_width=True,
-                key="backup_db"
-            )
+    # ==========================
+    # BACKUP / RESTORE (CSV ZIP) - SOLO ADMIN
+    # ==========================
+    st.subheader("💾 Backup / Restaurar (ZIP CSV)")
 
-    # Restaurar backup
-    st.markdown("### 🔄 Restaurar backup")
-    uploaded_file = st.file_uploader("Subir archivo .db", type=["db"], key="db_uploader")
+    if not is_admin:
+        st.info("Solo el Admin puede ver y ejecutar backups/restores.")
+        st.stop()
 
-    if uploaded_file is not None:
-        confirmar = st.checkbox("Confirmo restaurar (se reemplaza la base actual)", key="db_confirm")
-        if st.button("Restaurar base", use_container_width=True, key="db_restore", disabled=not confirmar):
-            with open(DB_PATH, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            st.success("✅ Base restaurada. Reiniciando...")
-            st.rerun()
+    # -------- BACKUP ZIP --------
+    st.markdown("### ⬇️ Descargar backup (ZIP)")
 
+    if st.button("📦 Generar ZIP de backup", use_container_width=True, key="btn_make_zip"):
+        tables = ["productos", "faltantes", "pedidos", "pedido_items", "movimientos"]
+        bio = io.BytesIO()
+
+        with zipfile.ZipFile(bio, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            for t in tables:
+                try:
+                    df_t = qdf(f"SELECT * FROM {t} ORDER BY 1")
+                except Exception:
+                    df_t = pd.DataFrame()
+                z.writestr(f"{t}.csv", df_t.to_csv(index=False))
+
+        bio.seek(0)
+        st.download_button(
+            "⬇️ Descargar backup_faltantes.zip",
+            data=bio.getvalue(),
+            file_name="backup_faltantes.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="dl_zip"
+        )
+
+    st.divider()
+
+    # -------- RESTORE ZIP --------
+    st.markdown("### 🔄 Restaurar desde ZIP (CSV)")
+    up_zip = st.file_uploader("Subí backup_faltantes.zip", type=["zip"], key="up_zip")
+
+    modo = st.radio(
+        "Modo de restauración",
+        ["Reemplazar todo (BORRA y carga de cero)", "Agregar (append)"],
+        index=0,
+        key="restore_mode"
+    )
+    confirmar = st.checkbox("Confirmo restaurar (acción delicada)", key="restore_confirm")
+
+    if up_zip is not None and st.button("Restaurar ahora", use_container_width=True, key="btn_restore_zip", disabled=not confirmar):
+        # Leer ZIP
+        zbytes = io.BytesIO(up_zip.getvalue())
+        with zipfile.ZipFile(zbytes, "r") as z:
+            def read_csv(name):
+                try:
+                    with z.open(name) as f:
+                        return pd.read_csv(f)
+                except Exception:
+                    return pd.DataFrame()
+
+            df_productos = read_csv("productos.csv")
+            df_faltantes = read_csv("faltantes.csv")
+            df_pedidos = read_csv("pedidos.csv")
+            df_pedido_items = read_csv("pedido_items.csv")
+            df_mov = read_csv("movimientos.csv")
+
+        eng = get_engine()
+
+        # Reemplazar = TRUNCATE
+        if modo.startswith("Reemplazar"):
+            exec_("TRUNCATE TABLE pedido_items, pedidos, movimientos, faltantes, productos RESTART IDENTITY CASCADE")
+
+        # Cargar (to_sql)
+        # Nota: to_sql usa el engine directo
+        with eng.begin() as c:
+            if not df_productos.empty:
+                df_productos.to_sql("productos", c, if_exists="append", index=False, method="multi")
+            if not df_faltantes.empty:
+                df_faltantes.to_sql("faltantes", c, if_exists="append", index=False, method="multi")
+            if not df_pedidos.empty:
+                df_pedidos.to_sql("pedidos", c, if_exists="append", index=False, method="multi")
+            if not df_pedido_items.empty:
+                df_pedido_items.to_sql("pedido_items", c, if_exists="append", index=False, method="multi")
+            if not df_mov.empty:
+                df_mov.to_sql("movimientos", c, if_exists="append", index=False, method="multi")
+
+        st.success("✅ Restore completado.")
+        st.rerun()
