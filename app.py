@@ -694,7 +694,20 @@ with tab2:
                 estado = str(row["estado"]).strip()
                 prioridad = row["prioridad"] if row["prioridad"] else "-"
                 categoria = row["categoria"] if row["categoria"] else "-"
+                from zoneinfo import ZoneInfo
+
                 creado = row["creado_en"]
+
+                if creado:
+                    creado = pd.to_datetime(creado)
+
+                    # Si viene sin zona horaria, asumimos UTC
+                    if creado.tzinfo is None:
+                        creado = creado.tz_localize("UTC")
+
+                    creado = creado.tz_convert("America/Argentina/Buenos_Aires")
+                    creado = creado.strftime("%d/%m/%Y %H:%M hs")
+
                 notas = row["notas"] if row["notas"] else ""
 
                 estado_class = {
@@ -992,6 +1005,14 @@ with tab3:
     else:
         st.dataframe(df_one, use_container_width=True)  
     
+    from zoneinfo import ZoneInfo
+
+    if not df_hist.empty:
+        df_hist["creado_en"] = (
+        pd.to_datetime(df_hist["creado_en"])
+        .dt.tz_convert("America/Argentina/Buenos_Aires")
+        .dt.strftime("%d/%m/%Y %H:%M hs")
+    )
   
 import zipfile
 
