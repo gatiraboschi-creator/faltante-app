@@ -6,6 +6,84 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 import streamlit as st
 
+def init_schema():
+    exec_("""
+        CREATE TABLE IF NOT EXISTS productos (
+            id bigserial PRIMARY KEY,
+            nombre text NOT NULL UNIQUE,
+            categoria text,
+            unidad text,
+            proveedor text,
+            activo boolean NOT NULL DEFAULT true,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            actualizado_en timestamptz NOT NULL DEFAULT now()
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS faltantes (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            producto text NOT NULL,
+            categoria text,
+            cantidad double precision,
+            unidad text,
+            prioridad text,
+            sector text,
+            proveedor text,
+            estado text NOT NULL,
+            notas text
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            fecha date NOT NULL DEFAULT current_date,
+            estados_incluidos text,
+            texto_wp text
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS pedido_items (
+            id bigserial PRIMARY KEY,
+            pedido_id bigint NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+            faltante_id bigint,
+            producto text,
+            categoria text,
+            cantidad double precision,
+            unidad text,
+            sector text,
+            proveedor text,
+            estado text,
+            prioridad text,
+            creado_en timestamptz NOT NULL DEFAULT now()
+        );
+    """)
+
+    exec_("""
+        CREATE TABLE IF NOT EXISTS movimientos (
+            id bigserial PRIMARY KEY,
+            creado_en timestamptz NOT NULL DEFAULT now(),
+            usuario text,
+            rol text,
+            faltante_id bigint NOT NULL,
+            accion text NOT NULL,
+            estado_anterior text,
+            estado_nuevo text,
+            nota text
+        );
+    """)
+
+@st.cache_resource
+def ensure_schema():
+    init_schema()
+    return True
+
+ensure_schema()
+
 @st.cache_resource
 def get_engine():
     return create_engine(
@@ -13,11 +91,7 @@ def get_engine():
         pool_pre_ping=True,
         pool_recycle=280,
     )
-def ensure_schema():
-    init_schema()
-    return True
-
-ensure_schema()
+    ensure_schema()
 
 
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
