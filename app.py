@@ -575,7 +575,7 @@ with tab2:
                 ids = df_pedido["id"].astype(int).tolist()
 
                 exec_(
-                    "UPDATE faltantes SET estado='Recibido' WHERE id = ANY(:ids::bigint[])",
+                    "UPDATE faltantes SET estado='Recibido' WHERE id = ANY(:ids)",
                     {"ids": ids}
                 )
 
@@ -644,8 +644,8 @@ with tab2:
                         estado_new = "Pedido"
 
                         exec_(
-                            "UPDATE faltantes SET estado=:e WHERE id=:id",
-                            {"e": estado_new, "id": fid}
+                            "UPDATE faltantes SET estado='Pedido' WHERE id = ANY(:ids)",
+                            {"ids": ids}
                         )
                         log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
                         st.rerun()
