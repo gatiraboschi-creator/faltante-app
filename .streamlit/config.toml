@@ -5,3 +5,5 @@ backgroundColor="#0f172a"
 secondaryBackgroundColor="#111827"
 textColor="#f1f5f9"
 font="sans serif"
+[db]
+url = "postgresql+psycopg2://USER:PASSWORD@HOST:5432/DBNAME"
