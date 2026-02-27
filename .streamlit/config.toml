@@ -5,5 +5,3 @@ backgroundColor="#0E1117"
 secondaryBackgroundColor="#161B22"
 textColor="#FAFAFA"
 font="sans serif"
-[db]
-url = "postgresql+psycopg2://postgres.yrckqkbgaqscbuptihgs:Guschiara30%24@aws-1-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require"
