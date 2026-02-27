@@ -7,8 +7,21 @@ import pandas as pd
 import streamlit as st
 
 @st.cache_resource
+@st.cache_resource
 def get_engine():
-    return create_engine(st.secrets["db"]["url"], pool_pre_ping=True)
+    url = st.secrets["db"]["url"]
+
+    # asegurar sslmode=require en la URL
+    if "sslmode=" not in url:
+        url = url + ("&" if "?" in url else "?") + "sslmode=require"
+
+    # además, connect_args por si el driver lo necesita
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_recycle=280,
+        connect_args={"sslmode": "require"},
+    )
 
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
     with get_engine().connect() as conn:
