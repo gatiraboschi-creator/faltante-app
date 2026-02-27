@@ -167,7 +167,7 @@ require_login()
 
 
 # Defaults
-CATEGORIAS = ["Almacén", "Verdulería", "Fiambre", "Carnicería", "Limpieza", "Descartables", "Bebidas",  "Panaderia", "Otros"]
+CATEGORIAS = ["Almacén", "Verdulería", "Fiambre", "Carnicería", "Carnicería", "Limpieza", "Descartables", "Bebidas",  "Panaderia", "Otros"]
 PRIORIDAD = ["Alta", "Media", "Baja"]
 ESTADOS = ["Pendiente", "Pedido", "Recibido", "Anulado"]
 SECTORES = ["Cocina", "Barra", "Salón"]
