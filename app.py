@@ -6,9 +6,6 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 import streamlit as st
 
-import streamlit as st
-from sqlalchemy import create_engine, text
-
 @st.cache_resource
 def get_engine():
     return create_engine(
@@ -16,6 +13,12 @@ def get_engine():
         pool_pre_ping=True,
         pool_recycle=280,
     )
+def ensure_schema():
+    init_schema()
+    return True
+
+ensure_schema()
+
 
 def qdf(sql: str, params: dict | None = None) -> pd.DataFrame:
     with get_engine().connect() as conn:
@@ -261,7 +264,6 @@ def init_schema():
         );
     """)
 
-init_schema()
 
 def log_mov(faltante_id: int, accion: str, estado_anterior: str = "", estado_nuevo: str = "", nota: str = ""):
     auth = st.session_state.get("auth", {})
@@ -589,14 +591,10 @@ with tab2:
             if st.button("📦 Recibir TODO el pedido", use_container_width=True, key="btn_recibir_todo"):
                 ids = df_pedido["id"].astype(int).tolist()
 
-                exec_(
-                    "UPDATE faltantes SET estado='Recibido' WHERE id = ANY(:ids)",
-                    {"ids": ids}
-                )
+                exec_("UPDATE faltantes SET estado='Recibido' WHERE id = ANY(:ids::bigint[])", {"ids": ids})
 
-                # log (si tenés log_mov ya adaptado sin conn)
                 for fid_ in ids:
-                    log_mov(fid_, "RECIBIR_TODO", "Pedido", "Recibido")
+                    log_mov(int(fid_), "RECIBIR_TODO", "Pedido", "Recibido")
 
                 st.success(f"✅ {len(ids)} ítems marcados como Recibido.")
                 st.rerun()
@@ -653,46 +651,40 @@ with tab2:
 
                 with b1:
                     if st.button("✅ Pedido", key=f"card_ped_{fid}", use_container_width=True,
-                                 disabled=(estado in ["Recibido", "Anulado"])):
-
-                        estado_old = estado
-                        estado_new = "Pedido"
+                                disabled=(estado in ["Recibido", "Anulado"])):
 
                         exec_(
-                            "UPDATE faltantes SET estado='Pedido' WHERE id = ANY(:ids)",
-                            {"ids": ids}
+                            "UPDATE faltantes SET estado='Pedido' WHERE id=:id",
+                            {"id": fid}
                         )
-                        log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
+
+                        log_mov(fid, "CAMBIO_ESTADO", estado, "Pedido")
                         st.rerun()
 
                 with b2:
                     if st.button("📦 Recibido", key=f"card_rec_{fid}", use_container_width=True,
-                                 disabled=(estado in ["Recibido", "Anulado"])):
-
-                        estado_old = estado
-                        estado_new = "Recibido"
+                                disabled=(estado in ["Recibido", "Anulado"])):
 
                         exec_(
-                            "UPDATE faltantes SET estado=:e WHERE id=:id",
-                            {"e": estado_new, "id": fid}
+                            "UPDATE faltantes SET estado='Recibido' WHERE id=:id",
+                            {"id": fid}
                         )
-                        log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
-                        st.rerun()
 
+                        log_mov(fid, "CAMBIO_ESTADO", estado, "Recibido")
+                        st.rerun()                
                 with b3:
                     if is_admin:
                         if st.button("🗑️ Anular", key=f"card_anu_{fid}", use_container_width=True,
-                                      disabled=(estado == "Anulado")):
+                                    disabled=(estado == "Anulado")):
 
-                            estado_old = estado
-                            estado_new = "Anulado"
-
-                            exec_(
-                                "UPDATE faltantes SET estado=:e WHERE id=:id",
-                                {"e": estado_new, "id": fid}
+                           exec_(
+                               "UPDATE faltantes SET estado='Anulado' WHERE id=:id",
+                                {"id": fid}
                             )
-                            log_mov(fid, "CAMBIO_ESTADO", estado_old, estado_new)
-                            st.rerun()
+
+                           log_mov(fid, "CAMBIO_ESTADO", estado, "Anulado")
+                           st.rerun()
+                
                     else:
                         st.button("🗑️ Anular", use_container_width=True, disabled=True, key=f"card_anu_disabled_{fid}")
 
