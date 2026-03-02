@@ -929,9 +929,17 @@ with tab3:
         pid = st.selectbox(
             "Seleccioná un pedido",
             options=df_p["id"].tolist(),
-            format_func=lambda x: f"Pedido #{x} — {df_p.loc[df_p['id']==x,'creado_en'].iloc[0]}",
-            key="p_sel"
+            format_func=lambda x: (
+                f"Pedido #{x} — " +
+                pd.to_datetime(
+                    df_p.loc[df_p['id']==x,'creado_en'].iloc[0],
+                    utc=True
         )
+        .tz_convert("America/Argentina/Buenos_Aires")
+        .strftime("%d/%m/%Y %H:%M hs")
+    ),
+    key="p_sel"
+)
 
         cab = qdf("SELECT * FROM pedidos WHERE id=:id", {"id": int(pid)}).iloc[0]
         st.write(f"**Creado:** {cab['creado_en']}  |  **Estados incluidos:** {cab.get('estados_incluidos', '')}")
