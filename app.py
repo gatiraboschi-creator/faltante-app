@@ -1240,7 +1240,7 @@ with tab4:
                     if st.button("Cancelar", use_container_width=True, key="btn_cancel_delete_prod"):
                         st.session_state["confirm_delete_prod_flag"] = False
                         st.rerun()
-        st.divider()
+                st.divider()
 
         st.markdown("### 🕘 Historial (movimientos) de este producto")
 
@@ -1270,12 +1270,14 @@ with tab4:
                 # Hora Argentina
                 df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
                 df_hist_prod["creado_en"] = (
-                df_hist_prod["creado_en"]
-                .dt.tz_convert("America/Argentina/Buenos_Aires")
-                .dt.strftime("%d/%m/%Y %H:%M hs")
+                    df_hist_prod["creado_en"]
+                    .dt.tz_convert("America/Argentina/Buenos_Aires")
+                    .dt.strftime("%d/%m/%Y %H:%M hs")
                 )
 
-           st.dataframe(df_hist_prod, use_container_width=True) 
+                st.dataframe(df_hist_prod, use_container_width=True)
+
+      
 
 
     # ============================================================
