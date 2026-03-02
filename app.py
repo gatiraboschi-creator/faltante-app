@@ -1307,13 +1307,24 @@ with tab4:
                             )
                             total_rel = int(df_rel.iloc[0]["total"]) if not df_rel.empty else 0
 
-                            if total_rel > 0:
-                                st.error(f"No se puede eliminar. Tiene {total_rel} faltantes asociados.")
-                                st.session_state["confirm_delete_prod_flag"] = False
-                                st.stop()
+                            # ids de faltantes relacionados a este producto
+                            df_ids = qdf("SELECT id FROM faltantes WHERE producto=:p", {"p": prod["nombre"]})
+                            ids = df_ids["id"].astype(int).tolist() if not df_ids.empty else []
 
+                            # (opcional) borrar historial de movimientos de esos faltantes
+                            if ids:
+                                exec_("DELETE FROM movimientos WHERE faltante_id = ANY(:ids::bigint[])", {"ids": ids})
+
+                                # (opcional) borrar ítems de pedidos que apunten a esos faltantes
+                                exec_("DELETE FROM pedido_items WHERE faltante_id = ANY(:ids::bigint[])", {"ids": ids})
+
+                                # borrar faltantes del producto
+                                exec_("DELETE FROM faltantes WHERE id = ANY(:ids::bigint[])", {"ids": ids})
+
+                            # borrar producto
                             exec_("DELETE FROM productos WHERE id=:id", {"id": int(prod_id)})
-                            st.success("🗑 Producto eliminado.")
+
+                            st.success("🗑 Producto eliminado (incluye faltantes asociados).")
                             st.session_state["confirm_delete_prod_flag"] = False
                             st.rerun()
 
