@@ -942,7 +942,13 @@ with tab3:
 )
 
         cab = qdf("SELECT * FROM pedidos WHERE id=:id", {"id": int(pid)}).iloc[0]
-        st.write(f"**Creado:** {cab['creado_en']}  |  **Estados incluidos:** {cab.get('estados_incluidos', '')}")
+        creado = pd.to_datetime(cab["creado_en"], utc=True)
+        creado = creado.tz_convert("America/Argentina/Buenos_Aires")
+        creado = creado.strftime("%d/%m/%Y %H:%M hs")
+
+        st.write(
+            f"**Creado:** {creado}  |  **Estados incluidos:** {cab.get('estados_incluidos', '')}"
+)
 
         st.text_area("Texto WhatsApp guardado", value=str(cab["texto_wp"]), height=260, key="p_texto")
 
