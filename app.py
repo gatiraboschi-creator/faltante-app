@@ -504,7 +504,8 @@ with tab1:
             default_unidad = prod_map[producto].get("unidad") or default_unidad
             default_proveedor = prod_map[producto].get("proveedor") or default_proveedor
 
-        producto_en_maestro = (not es_nuevo) and (producto in prod_map)
+        # Solo bloqueo si lo eligió del selector (producto_sel), no si lo escribió a mano
+        producto_en_maestro = bool((producto_sel or "").strip())
 
         categoria = st.selectbox(
             "Categoría",
