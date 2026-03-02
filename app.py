@@ -1241,40 +1241,41 @@ with tab4:
                         st.session_state["confirm_delete_prod_flag"] = False
                         st.rerun()
         st.divider()
-st.markdown("### 🕘 Historial (movimientos) de este producto")
 
-with st.expander("Ver historial", expanded=False):
-    nombre_prod = str(prod["nombre"])
+        st.markdown("### 🕘 Historial (movimientos) de este producto")
 
-    df_hist_prod = qdf("""
-        SELECT
-            m.creado_en,
-            m.usuario,
-            m.rol,
-            m.faltante_id,
-            m.accion,
-            m.estado_anterior,
-            m.estado_nuevo,
-            m.nota
-        FROM movimientos m
-        JOIN faltantes f ON f.id = m.faltante_id
-        WHERE f.producto = :p
-        ORDER BY m.id DESC
-        LIMIT 300
-    """, {"p": nombre_prod})
+        with st.expander("Ver historial", expanded=False):
+            nombre_prod = str(prod["nombre"])
 
-    if df_hist_prod.empty:
-        st.info("No hay movimientos para este producto.")
-    else:
-        # Hora Argentina
-        df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
-        df_hist_prod["creado_en"] = (
-            df_hist_prod["creado_en"]
-            .dt.tz_convert("America/Argentina/Buenos_Aires")
-            .dt.strftime("%d/%m/%Y %H:%M hs")
-        )
+            df_hist_prod = qdf("""
+                SELECT
+                    m.creado_en,
+                    m.usuario,
+                    m.rol,
+                    m.faltante_id,
+                    m.accion,
+                    m.estado_anterior,
+                    m.estado_nuevo,
+                    m.nota
+                FROM movimientos m
+                JOIN faltantes f ON f.id = m.faltante_id
+                WHERE f.producto = :p
+                ORDER BY m.id DESC
+                LIMIT 300
+            """, {"p": nombre_prod})
 
-        st.dataframe(df_hist_prod, use_container_width=True) 
+            if df_hist_prod.empty:
+                st.info("No hay movimientos para este producto.")
+            else:
+                # Hora Argentina
+                df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
+                df_hist_prod["creado_en"] = (
+                df_hist_prod["creado_en"]
+                .dt.tz_convert("America/Argentina/Buenos_Aires")
+                .dt.strftime("%d/%m/%Y %H:%M hs")
+                )
+
+           st.dataframe(df_hist_prod, use_container_width=True) 
 
 
     # ============================================================
