@@ -729,6 +729,8 @@ with tab2:
                     unsafe_allow_html=True
                 )
 
+
+
                 st.markdown(
                     f"<div class='small'>🕒 {creado} | 📦 {float(cantidad or 0):g} {unidad} | 🚚 {proveedor}</div>",
                     unsafe_allow_html=True
@@ -780,7 +782,42 @@ with tab2:
                     else:
                         st.button("🗑️ Anular", use_container_width=True, disabled=True, key=f"card_anu_disabled_{fid}")
 
+                with st.expander("✏️ Editar", expanded=False):
+                    with st.form(f"edit_{fid}"):
+                        nueva_cantidad = st.number_input(
+                            "Cantidad",
+                            value=float(row["cantidad"] or 0),
+                            step=0.5,
+                            format="%.2f"
+                        )
+                        nuevas_notas = st.text_area(
+                            "Notas",
+                            value=str(row["notas"] or "")
+                        )
+
+                        guardar_edit = st.form_submit_button("💾 Guardar")
+
+                    if guardar_edit:
+                        exec_(
+                            "UPDATE faltantes SET cantidad=:c, notas=:n WHERE id=:id",
+                            {
+                                "c": float(nueva_cantidad),
+                                "n": nuevas_notas.strip(),
+                                "id": fid
+                            }
+                        )
+
+                        log_mov(fid, "EDITAR_FALTANTE", nota="Edición manual")
+
+                        st.success("✅ Faltante actualizado")
+                        st.rerun()
+
+                        # 👆👆👆 FIN EDITAR 👆👆👆
+
+
                 st.markdown("</div>", unsafe_allow_html=True)
+
+
 
     # ---------- SUBTAB WHATSAPP ----------
     with sub2:
