@@ -1047,6 +1047,47 @@ with tab4:
     role = st.session_state.auth["role"]
     is_admin = role == "Admin"
 
+    st.divider()
+st.markdown("### ➕ Cargar nuevo producto")
+
+with st.form("form_add_producto", clear_on_submit=True):
+    n_nombre = st.text_input("Nombre *", placeholder="Ej: Coca 2.25L")
+    n_categoria = st.selectbox("Categoría", CATEGORIAS, index=0)
+    n_unidad = st.selectbox("Unidad", UNIDADES, index=0)
+    n_proveedor = st.text_input("Proveedor", placeholder="Ej: Distribuidora X")
+    n_activo = st.checkbox("Activo", value=True)
+
+    btn_add = st.form_submit_button("✅ Agregar producto", use_container_width=True)
+
+if btn_add:
+    nombre = (n_nombre or "").strip()
+    proveedor = (n_proveedor or "").strip()
+
+    if not nombre:
+        st.error("El nombre es obligatorio.")
+    else:
+        # evitar duplicados por mayúsc/minúsc
+        df_check = qdf(
+            "SELECT id FROM productos WHERE lower(nombre)=lower(:n) LIMIT 1",
+            {"n": nombre}
+        )
+        if not df_check.empty:
+            st.error("Ya existe un producto con ese nombre.")
+        else:
+            exec_("""
+                INSERT INTO productos (nombre, categoria, unidad, proveedor, activo, creado_en, actualizado_en)
+                VALUES (:nombre, :categoria, :unidad, :proveedor, :activo, now(), now())
+            """, {
+                "nombre": nombre,
+                "categoria": n_categoria,
+                "unidad": n_unidad,
+                "proveedor": proveedor,
+                "activo": bool(n_activo),
+            })
+
+            st.success("✅ Producto creado.")
+            st.rerun()
+
     # ==========================
     # LISTADO
     # ==========================
