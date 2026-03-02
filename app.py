@@ -966,56 +966,62 @@ with tab3:
         hist_limite = st.selectbox("Mostrar", [50, 100, 200, 500], index=1, key="hist_limite")
 
     # Traemos movimientos + nombre del producto
-    df_hist = qdf(f"""
-        SELECT
-            m.creado_en,
-            m.usuario,
-            m.rol,
-            m.faltante_id,
-            f.producto,
-            m.accion,
-            m.estado_anterior,
-            m.estado_nuevo,
-            m.nota
-        FROM movimientos m
-        JOIN faltantes f ON f.id = m.faltante_id
-        ORDER BY m.id DESC
-        LIMIT {int(hist_limite)}
-    """)
+df_hist = qdf(f"""
+    SELECT
+        m.creado_en,
+        m.usuario,
+        m.rol,
+        m.faltante_id,
+        f.producto,
+        m.accion,
+        m.estado_anterior,
+        m.estado_nuevo,
+        m.nota
+    FROM movimientos m
+    JOIN faltantes f ON f.id = m.faltante_id
+    ORDER BY m.id DESC
+    LIMIT {int(hist_limite)}
+""")
 
+# Filtro buscar
+if hist_buscar.strip() and not df_hist.empty:
+    bb = hist_buscar.strip().lower()
+    df_hist = df_hist[df_hist["producto"].fillna("").str.lower().str.contains(bb, na=False)]
 
-    if hist_buscar.strip() and not df_hist.empty:
-        bb = hist_buscar.strip().lower()
-        df_hist = df_hist[df_hist["producto"].fillna("").str.lower().str.contains(bb, na=False)]
-
-    st.dataframe(df_hist, use_container_width=True)
-
-    st.markdown("### 🔎 Historial de un ítem")
-    fid_lookup = st.number_input("Faltante ID", min_value=1, step=1, value=1, key="hist_fid")
-
-    df_one = qdf("""
-        SELECT creado_en, usuario, rol, accion, estado_anterior, estado_nuevo, nota
-        FROM movimientos
-        WHERE faltante_id = :fid
-        ORDER BY id DESC
-        LIMIT 200
-    """, {"fid": int(fid_lookup)})
-
-    if df_one.empty:
-        st.info("Sin movimientos para ese ID.")
-    else:
-        st.dataframe(df_one, use_container_width=True)  
-    
-    from zoneinfo import ZoneInfo
-
-    if not df_hist.empty:
-        df_hist["creado_en"] = (
-        pd.to_datetime(df_hist["creado_en"])
+# ✅ Convertir a hora AR antes de mostrar
+if not df_hist.empty:
+    df_hist["creado_en"] = pd.to_datetime(df_hist["creado_en"], utc=True)
+    df_hist["creado_en"] = (
+        df_hist["creado_en"]
         .dt.tz_convert("America/Argentina/Buenos_Aires")
         .dt.strftime("%d/%m/%Y %H:%M hs")
-        )
-    st.dataframe(df_one, use_container_width=True)    
-    
+    )
+
+st.dataframe(df_hist, use_container_width=True)
+
+st.markdown("### 🔎 Historial de un ítem")
+fid_lookup = st.number_input("Faltante ID", min_value=1, step=1, value=1, key="hist_fid")
+
+df_one = qdf("""
+    SELECT creado_en, usuario, rol, accion, estado_anterior, estado_nuevo, nota
+    FROM movimientos
+    WHERE faltante_id = :fid
+    ORDER BY id DESC
+    LIMIT 200
+""", {"fid": int(fid_lookup)})
+
+if df_one.empty:
+    st.info("Sin movimientos para ese ID.")
+else:
+    # ✅ Convertir df_one también
+    df_one["creado_en"] = pd.to_datetime(df_one["creado_en"], utc=True)
+    df_one["creado_en"] = (
+        df_one["creado_en"]
+        .dt.tz_convert("America/Argentina/Buenos_Aires")
+        .dt.strftime("%d/%m/%Y %H:%M hs")
+    )
+
+    st.dataframe(df_one, use_container_width=True)
 import zipfile
 
 # ============================================================
