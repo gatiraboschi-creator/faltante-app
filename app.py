@@ -983,6 +983,7 @@ with tab3:
         LIMIT {int(hist_limite)}
     """)
 
+
     if hist_buscar.strip() and not df_hist.empty:
         bb = hist_buscar.strip().lower()
         df_hist = df_hist[df_hist["producto"].fillna("").str.lower().str.contains(bb, na=False)]
@@ -1012,8 +1013,9 @@ with tab3:
         pd.to_datetime(df_hist["creado_en"])
         .dt.tz_convert("America/Argentina/Buenos_Aires")
         .dt.strftime("%d/%m/%Y %H:%M hs")
-    )
-  
+        )
+    st.dataframe(df_one, use_container_width=True)    
+    
 import zipfile
 
 # ============================================================
