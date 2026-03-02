@@ -972,6 +972,8 @@ with tab3:
 
     st.divider()
     st.subheader("📜 Historial de movimientos")
+    st.info("📌 El historial global se movió a Productos (Tab 4).")
+    
 
     c1, c2 = st.columns([2, 1])
     with c1:
