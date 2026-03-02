@@ -980,7 +980,7 @@ with tab3:
         hist_limite = st.selectbox("Mostrar", [50, 100, 200, 500], index=1, key="hist_limite")
 
     # Traemos movimientos + nombre del producto
-df_hist = qdf(f"""
+    df_hist = qdf(f"""
     SELECT
         m.creado_en,
         m.usuario,
@@ -995,7 +995,7 @@ df_hist = qdf(f"""
     JOIN faltantes f ON f.id = m.faltante_id
     ORDER BY m.id DESC
     LIMIT {int(hist_limite)}
-""")
+    """)
 
 # Filtro buscar
 if hist_buscar.strip() and not df_hist.empty:
@@ -1011,7 +1011,7 @@ if not df_hist.empty:
         .dt.strftime("%d/%m/%Y %H:%M hs")
     )
 
-st.dataframe(df_hist, use_container_width=True)
+    st.dataframe(df_hist, use_container_width=True)
 
 
 import zipfile
@@ -1132,12 +1132,18 @@ with tab4:
             # ==========================
             st.markdown("### ✏ Editar producto")
 
+            # --- selector ---
             prod_id = st.selectbox(
                 "Seleccionar producto",
                 options=df_prod["id"].tolist(),
                 format_func=lambda x: df_prod.loc[df_prod["id"] == x, "nombre"].iloc[0],
-                key="prod_select_edit",
+                key="prod_select_edit"
             )
+
+            # ✅ si el id seleccionado ya no está (por filtros), elegir el primero disponible
+            if df_prod[df_prod["id"] == prod_id].empty:
+                prod_id = int(df_prod["id"].iloc[0])
+                st.session_state["prod_select_edit"] = prod_id
 
             prod = df_prod[df_prod["id"] == prod_id].iloc[0]
 
