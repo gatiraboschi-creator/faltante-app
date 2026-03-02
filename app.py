@@ -1113,19 +1113,25 @@ with tab4:
             if cat_filter != "Todas":
                 df_prod = df_prod[df_prod["categoria"] == cat_filter]
 
-            if q.strip():
-                qq = q.strip().lower()
-                df_prod = df_prod[
-                    df_prod["nombre"].str.lower().str.contains(qq, na=False)
-                    | df_prod["proveedor"].str.lower().str.contains(qq, na=False)
-                ]
+                        # ✅ Si luego de aplicar filtros no quedó nada, no seguimos
+            if df_prod.empty:
+                st.warning("No hay productos con esos filtros. Probá limpiar búsqueda, cambiar categoría o desactivar 'Solo activos'.")
+                # Si querés resetear filtros rápido:
+                # st.session_state["prod_q"] = ""
+                # st.session_state["prod_cat_filter"] = "Todas"
+                # st.session_state["prod_solo_activos"] = True
+                # st.rerun()
+            else:
+                with st.expander("📋 Ver listado de productos", expanded=False):
+                    st.dataframe(
+                        df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]],
+                        use_container_width=True,
+                    )
 
-            st.dataframe(
-                df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]],
-                use_container_width=True,
-            )
+                st.divider()
 
-            st.divider()
+                # 👇 TODO lo que viene después (select producto / editar / eliminar / historial)
+                # tiene que ir ACÁ adentro de este else
 
             # ==========================
             # EDITAR PRODUCTO
