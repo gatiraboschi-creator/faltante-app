@@ -1013,29 +1013,7 @@ if not df_hist.empty:
 
 st.dataframe(df_hist, use_container_width=True)
 
-st.markdown("### 🔎 Historial de un ítem")
-fid_lookup = st.number_input("Faltante ID", min_value=1, step=1, value=1, key="hist_fid")
 
-df_one = qdf("""
-    SELECT creado_en, usuario, rol, accion, estado_anterior, estado_nuevo, nota
-    FROM movimientos
-    WHERE faltante_id = :fid
-    ORDER BY id DESC
-    LIMIT 200
-""", {"fid": int(fid_lookup)})
-
-if df_one.empty:
-    st.info("Sin movimientos para ese ID.")
-else:
-    # ✅ Convertir df_one también
-    df_one["creado_en"] = pd.to_datetime(df_one["creado_en"], utc=True)
-    df_one["creado_en"] = (
-        df_one["creado_en"]
-        .dt.tz_convert("America/Argentina/Buenos_Aires")
-        .dt.strftime("%d/%m/%Y %H:%M hs")
-    )
-
-    st.dataframe(df_one, use_container_width=True)
 import zipfile
 
 # ============================================================
@@ -1262,6 +1240,42 @@ with tab4:
                     if st.button("Cancelar", use_container_width=True, key="btn_cancel_delete_prod"):
                         st.session_state["confirm_delete_prod_flag"] = False
                         st.rerun()
+        st.divider()
+st.markdown("### 🕘 Historial (movimientos) de este producto")
+
+with st.expander("Ver historial", expanded=False):
+    nombre_prod = str(prod["nombre"])
+
+    df_hist_prod = qdf("""
+        SELECT
+            m.creado_en,
+            m.usuario,
+            m.rol,
+            m.faltante_id,
+            m.accion,
+            m.estado_anterior,
+            m.estado_nuevo,
+            m.nota
+        FROM movimientos m
+        JOIN faltantes f ON f.id = m.faltante_id
+        WHERE f.producto = :p
+        ORDER BY m.id DESC
+        LIMIT 300
+    """, {"p": nombre_prod})
+
+    if df_hist_prod.empty:
+        st.info("No hay movimientos para este producto.")
+    else:
+        # Hora Argentina
+        df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
+        df_hist_prod["creado_en"] = (
+            df_hist_prod["creado_en"]
+            .dt.tz_convert("America/Argentina/Buenos_Aires")
+            .dt.strftime("%d/%m/%Y %H:%M hs")
+        )
+
+        st.dataframe(df_hist_prod, use_container_width=True) 
+
 
     # ============================================================
     # SUBTAB: BACKUP / RESTORE
