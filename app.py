@@ -1025,7 +1025,9 @@ with tab4:
     role = st.session_state.auth["role"]
     is_admin = role == "Admin"
 
-    sub_new, sub_list, sub_backup = st.tabs(["➕ Nuevo producto", "📋 Productos", "💾 Backup / Restore"])
+    sub_new, sub_list, sub_backup = st.tabs(
+        ["➕ Nuevo producto", "📋 Productos", "💾 Backup / Restore"]
+    )
 
     # ============================================================
     # SUBTAB: NUEVO PRODUCTO
@@ -1051,27 +1053,29 @@ with tab4:
             else:
                 df_check = qdf(
                     "SELECT id FROM productos WHERE lower(nombre)=lower(:n) LIMIT 1",
-                    {"n": nombre}
+                    {"n": nombre},
                 )
                 if not df_check.empty:
                     st.error("Ya existe un producto con ese nombre.")
                 else:
-                    exec_("""
+                    exec_(
+                        """
                         INSERT INTO productos (nombre, categoria, unidad, proveedor, activo, creado_en, actualizado_en)
                         VALUES (:nombre, :categoria, :unidad, :proveedor, :activo, now(), now())
-                    """, {
-                        "nombre": nombre,
-                        "categoria": n_categoria,
-                        "unidad": n_unidad,
-                        "proveedor": proveedor,
-                        "activo": bool(n_activo),
-                    })
-
+                        """,
+                        {
+                            "nombre": nombre,
+                            "categoria": n_categoria,
+                            "unidad": n_unidad,
+                            "proveedor": proveedor,
+                            "activo": bool(n_activo),
+                        },
+                    )
                     st.success("✅ Producto creado.")
                     st.rerun()
 
     # ============================================================
-    # SUBTAB: LISTADO + EDITAR + ELIMINAR
+    # SUBTAB: LISTADO + EDITAR + ELIMINAR + HISTORIAL
     # ============================================================
     with sub_list:
         st.markdown("### 📋 Productos cargados")
@@ -1080,205 +1084,234 @@ with tab4:
         with col_f1:
             q = st.text_input("Buscar producto / proveedor", key="prod_q")
         with col_f2:
-            cat_filter = st.selectbox("Filtrar categoría", ["Todas"] + CATEGORIAS, key="prod_cat_filter")
+            cat_filter = st.selectbox(
+                "Filtrar categoría", ["Todas"] + CATEGORIAS, key="prod_cat_filter"
+            )
 
         solo_activos = st.checkbox("Solo activos", value=True, key="prod_solo_activos")
 
-        df_prod = qdf("""
+        df_prod = qdf(
+            """
             SELECT id, nombre, categoria, unidad, proveedor, activo
             FROM productos
             ORDER BY nombre
-        """)
+            """
+        )
 
         if df_prod.empty:
             st.info("No hay productos cargados todavía.")
-            st.stop()
-
-        df_prod["nombre"] = df_prod["nombre"].fillna("").astype(str)
-        df_prod["categoria"] = df_prod["categoria"].fillna("").astype(str)
-        df_prod["proveedor"] = df_prod["proveedor"].fillna("").astype(str)
-
-        if solo_activos:
-            df_prod = df_prod[df_prod["activo"] == True]
-
-        if cat_filter != "Todas":
-            df_prod = df_prod[df_prod["categoria"] == cat_filter]
-
-        if q.strip():
-            qq = q.strip().lower()
-            df_prod = df_prod[
-                df_prod["nombre"].str.lower().str.contains(qq, na=False) |
-                df_prod["proveedor"].str.lower().str.contains(qq, na=False)
-            ]
-
-        st.dataframe(df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]], use_container_width=True)
-
-        st.divider()
-
-        # ==========================
-        # EDITAR PRODUCTO
-        # ==========================
-        st.markdown("### ✏ Editar producto")
-
-        prod_id = st.selectbox(
-            "Seleccionar producto",
-            options=df_prod["id"].tolist(),
-            format_func=lambda x: df_prod.loc[df_prod["id"] == x, "nombre"].iloc[0],
-            key="prod_select_edit"
-        )
-
-        prod = df_prod[df_prod["id"] == prod_id].iloc[0]
-
-        with st.form("form_edit_producto"):
-            nombre = st.text_input("Nombre", value=prod["nombre"])
-            categoria = st.selectbox(
-                "Categoría",
-                CATEGORIAS,
-                index=CATEGORIAS.index(prod["categoria"]) if prod["categoria"] in CATEGORIAS else 0
-            )
-            unidad = st.selectbox(
-                "Unidad",
-                UNIDADES,
-                index=UNIDADES.index(prod["unidad"]) if prod["unidad"] in UNIDADES else 0
-            )
-            proveedor = st.text_input("Proveedor", value=prod["proveedor"] or "")
-            activo = st.checkbox("Activo", value=bool(prod["activo"]))
-
-            guardar = st.form_submit_button("💾 Guardar cambios", use_container_width=True)
-
-        if guardar:
-            nuevo_nombre = (nombre or "").strip()
-            if not nuevo_nombre:
-                st.error("El nombre no puede estar vacío.")
-                st.stop()
-
-            df_check = qdf(
-                "SELECT id FROM productos WHERE lower(nombre)=lower(:n) LIMIT 1",
-                {"n": nuevo_nombre}
-            )
-            if not df_check.empty and int(df_check.iloc[0]["id"]) != int(prod_id):
-                st.error("Ya existe un producto con ese nombre. No se puede duplicar.")
-                st.stop()
-
-            old_name = prod["nombre"]
-
-            exec_("""
-                UPDATE productos
-                SET nombre=:nombre,
-                    categoria=:categoria,
-                    unidad=:unidad,
-                    proveedor=:proveedor,
-                    activo=:activo,
-                    actualizado_en=now()
-                WHERE id=:id
-            """, {
-                "nombre": nuevo_nombre,
-                "categoria": categoria,
-                "unidad": unidad,
-                "proveedor": (proveedor or "").strip(),
-                "activo": bool(activo),
-                "id": int(prod_id)
-            })
-
-            exec_("""
-                UPDATE faltantes
-                SET producto=:nuevo,
-                    categoria=:categoria,
-                    unidad=:unidad,
-                    proveedor=:proveedor
-                WHERE producto=:viejo
-            """, {
-                "nuevo": nuevo_nombre,
-                "viejo": old_name,
-                "categoria": categoria,
-                "unidad": unidad,
-                "proveedor": (proveedor or "").strip()
-            })
-
-            st.success("✅ Producto actualizado en maestro y faltantes.")
-            st.rerun()
-
-        st.divider()
-
-        # ==========================
-        # ELIMINAR PRODUCTO
-        # ==========================
-        st.markdown("### 🗑 Eliminar producto")
-
-        if not is_admin:
-            st.info("Solo el Admin puede eliminar productos.")
         else:
-            if "confirm_delete_prod_flag" not in st.session_state:
-                st.session_state["confirm_delete_prod_flag"] = False
+            # Normalizar
+            df_prod["nombre"] = df_prod["nombre"].fillna("").astype(str)
+            df_prod["categoria"] = df_prod["categoria"].fillna("").astype(str)
+            df_prod["proveedor"] = df_prod["proveedor"].fillna("").astype(str)
 
-            if st.button("❌ Eliminar producto seleccionado", use_container_width=True, key="btn_delete_prod"):
-                st.session_state["confirm_delete_prod_flag"] = True
+            # Filtros
+            if solo_activos:
+                df_prod = df_prod[df_prod["activo"] == True]
 
-            if st.session_state["confirm_delete_prod_flag"]:
-                st.warning("⚠ Elimina el producto del maestro SOLO si NO tiene faltantes asociados.")
+            if cat_filter != "Todas":
+                df_prod = df_prod[df_prod["categoria"] == cat_filter]
 
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar eliminación", use_container_width=True, key="btn_confirm_delete_prod"):
-                        df_rel = qdf(
-                            "SELECT COUNT(*) AS total FROM faltantes WHERE producto=:p",
-                            {"p": prod["nombre"]}
-                        )
-                        total_rel = int(df_rel.iloc[0]["total"]) if not df_rel.empty else 0
+            if q.strip():
+                qq = q.strip().lower()
+                df_prod = df_prod[
+                    df_prod["nombre"].str.lower().str.contains(qq, na=False)
+                    | df_prod["proveedor"].str.lower().str.contains(qq, na=False)
+                ]
 
-                        if total_rel > 0:
-                            st.error(f"No se puede eliminar. Tiene {total_rel} faltantes asociados.")
-                            st.session_state["confirm_delete_prod_flag"] = False
-                            st.stop()
+            st.dataframe(
+                df_prod[["nombre", "categoria", "unidad", "proveedor", "activo"]],
+                use_container_width=True,
+            )
 
-                        exec_("DELETE FROM productos WHERE id=:id", {"id": int(prod_id)})
-                        st.success("🗑 Producto eliminado.")
-                        st.session_state["confirm_delete_prod_flag"] = False
-                        st.rerun()
+            st.divider()
 
-                with c2:
-                    if st.button("Cancelar", use_container_width=True, key="btn_cancel_delete_prod"):
-                        st.session_state["confirm_delete_prod_flag"] = False
-                        st.rerun()
-                st.divider()
+            # ==========================
+            # EDITAR PRODUCTO
+            # ==========================
+            st.markdown("### ✏ Editar producto")
 
-        st.markdown("### 🕘 Historial (movimientos) de este producto")
+            prod_id = st.selectbox(
+                "Seleccionar producto",
+                options=df_prod["id"].tolist(),
+                format_func=lambda x: df_prod.loc[df_prod["id"] == x, "nombre"].iloc[0],
+                key="prod_select_edit",
+            )
 
-        with st.expander("Ver historial", expanded=False):
-            nombre_prod = str(prod["nombre"])
+            prod = df_prod[df_prod["id"] == prod_id].iloc[0]
 
-            df_hist_prod = qdf("""
-                SELECT
-                    m.creado_en,
-                    m.usuario,
-                    m.rol,
-                    m.faltante_id,
-                    m.accion,
-                    m.estado_anterior,
-                    m.estado_nuevo,
-                    m.nota
-                FROM movimientos m
-                JOIN faltantes f ON f.id = m.faltante_id
-                WHERE f.producto = :p
-                ORDER BY m.id DESC
-                LIMIT 300
-            """, {"p": nombre_prod})
+            with st.form("form_edit_producto"):
+                nombre = st.text_input("Nombre", value=prod["nombre"])
+                categoria = st.selectbox(
+                    "Categoría",
+                    CATEGORIAS,
+                    index=CATEGORIAS.index(prod["categoria"])
+                    if prod["categoria"] in CATEGORIAS
+                    else 0,
+                )
+                unidad = st.selectbox(
+                    "Unidad",
+                    UNIDADES,
+                    index=UNIDADES.index(prod["unidad"])
+                    if prod["unidad"] in UNIDADES
+                    else 0,
+                )
+                proveedor = st.text_input("Proveedor", value=prod["proveedor"] or "")
+                activo = st.checkbox("Activo", value=bool(prod["activo"]))
 
-            if df_hist_prod.empty:
-                st.info("No hay movimientos para este producto.")
-            else:
-                # Hora Argentina
-                df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
-                df_hist_prod["creado_en"] = (
-                    df_hist_prod["creado_en"]
-                    .dt.tz_convert("America/Argentina/Buenos_Aires")
-                    .dt.strftime("%d/%m/%Y %H:%M hs")
+                guardar = st.form_submit_button("💾 Guardar cambios", use_container_width=True)
+
+            if guardar:
+                nuevo_nombre = (nombre or "").strip()
+                if not nuevo_nombre:
+                    st.error("El nombre no puede estar vacío.")
+                    st.stop()
+
+                df_check = qdf(
+                    "SELECT id FROM productos WHERE lower(nombre)=lower(:n) LIMIT 1",
+                    {"n": nuevo_nombre},
+                )
+                if not df_check.empty and int(df_check.iloc[0]["id"]) != int(prod_id):
+                    st.error("Ya existe un producto con ese nombre. No se puede duplicar.")
+                    st.stop()
+
+                old_name = prod["nombre"]
+
+                exec_(
+                    """
+                    UPDATE productos
+                    SET nombre=:nombre,
+                        categoria=:categoria,
+                        unidad=:unidad,
+                        proveedor=:proveedor,
+                        activo=:activo,
+                        actualizado_en=now()
+                    WHERE id=:id
+                    """,
+                    {
+                        "nombre": nuevo_nombre,
+                        "categoria": categoria,
+                        "unidad": unidad,
+                        "proveedor": (proveedor or "").strip(),
+                        "activo": bool(activo),
+                        "id": int(prod_id),
+                    },
                 )
 
-                st.dataframe(df_hist_prod, use_container_width=True)
+                # Propagar a faltantes existentes por nombre viejo (si cambió)
+                exec_(
+                    """
+                    UPDATE faltantes
+                    SET producto=:nuevo,
+                        categoria=:categoria,
+                        unidad=:unidad,
+                        proveedor=:proveedor
+                    WHERE producto=:viejo
+                    """,
+                    {
+                        "nuevo": nuevo_nombre,
+                        "viejo": old_name,
+                        "categoria": categoria,
+                        "unidad": unidad,
+                        "proveedor": (proveedor or "").strip(),
+                    },
+                )
 
-      
+                st.success("✅ Producto actualizado en maestro y faltantes.")
+                st.rerun()
 
+            st.divider()
+
+            # ==========================
+            # ELIMINAR PRODUCTO
+            # ==========================
+            st.markdown("### 🗑 Eliminar producto")
+
+            if not is_admin:
+                st.info("Solo el Admin puede eliminar productos.")
+            else:
+                if "confirm_delete_prod_flag" not in st.session_state:
+                    st.session_state["confirm_delete_prod_flag"] = False
+
+                if st.button(
+                    "❌ Eliminar producto seleccionado",
+                    use_container_width=True,
+                    key="btn_delete_prod",
+                ):
+                    st.session_state["confirm_delete_prod_flag"] = True
+
+                if st.session_state["confirm_delete_prod_flag"]:
+                    st.warning("⚠ Elimina el producto del maestro SOLO si NO tiene faltantes asociados.")
+
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button(
+                            "✅ Confirmar eliminación",
+                            use_container_width=True,
+                            key="btn_confirm_delete_prod",
+                        ):
+                            df_rel = qdf(
+                                "SELECT COUNT(*) AS total FROM faltantes WHERE producto=:p",
+                                {"p": prod["nombre"]},
+                            )
+                            total_rel = int(df_rel.iloc[0]["total"]) if not df_rel.empty else 0
+
+                            if total_rel > 0:
+                                st.error(f"No se puede eliminar. Tiene {total_rel} faltantes asociados.")
+                                st.session_state["confirm_delete_prod_flag"] = False
+                                st.stop()
+
+                            exec_("DELETE FROM productos WHERE id=:id", {"id": int(prod_id)})
+                            st.success("🗑 Producto eliminado.")
+                            st.session_state["confirm_delete_prod_flag"] = False
+                            st.rerun()
+
+                    with c2:
+                        if st.button("Cancelar", use_container_width=True, key="btn_cancel_delete_prod"):
+                            st.session_state["confirm_delete_prod_flag"] = False
+                            st.rerun()
+
+            st.divider()
+
+            # ==========================
+            # HISTORIAL (solo acá)
+            # ==========================
+            st.markdown("### 🕘 Historial (movimientos) de este producto")
+
+            with st.expander("Ver historial", expanded=False):
+                nombre_prod = str(prod["nombre"])
+
+                df_hist_prod = qdf(
+                    """
+                    SELECT
+                        m.creado_en,
+                        m.usuario,
+                        m.rol,
+                        m.faltante_id,
+                        m.accion,
+                        m.estado_anterior,
+                        m.estado_nuevo,
+                        m.nota
+                    FROM movimientos m
+                    JOIN faltantes f ON f.id = m.faltante_id
+                    WHERE f.producto = :p
+                    ORDER BY m.id DESC
+                    LIMIT 300
+                    """,
+                    {"p": nombre_prod},
+                )
+
+                if df_hist_prod.empty:
+                    st.info("No hay movimientos para este producto.")
+                else:
+                    df_hist_prod["creado_en"] = pd.to_datetime(df_hist_prod["creado_en"], utc=True)
+                    df_hist_prod["creado_en"] = (
+                        df_hist_prod["creado_en"]
+                        .dt.tz_convert("America/Argentina/Buenos_Aires")
+                        .dt.strftime("%d/%m/%Y %H:%M hs")
+                    )
+                    st.dataframe(df_hist_prod, use_container_width=True)
 
     # ============================================================
     # SUBTAB: BACKUP / RESTORE
@@ -1311,7 +1344,7 @@ with tab4:
                 file_name="backup_faltantes.zip",
                 mime="application/zip",
                 use_container_width=True,
-                key="dl_zip"
+                key="dl_zip",
             )
 
         st.divider()
@@ -1323,13 +1356,19 @@ with tab4:
             "Modo de restauración",
             ["Reemplazar todo (BORRA y carga de cero)", "Agregar (append)"],
             index=0,
-            key="restore_mode"
+            key="restore_mode",
         )
         confirmar = st.checkbox("Confirmo restaurar (acción delicada)", key="restore_confirm")
 
-        if up_zip is not None and st.button("Restaurar ahora", use_container_width=True, key="btn_restore_zip", disabled=not confirmar):
+        if up_zip is not None and st.button(
+            "Restaurar ahora",
+            use_container_width=True,
+            key="btn_restore_zip",
+            disabled=not confirmar,
+        ):
             zbytes = io.BytesIO(up_zip.getvalue())
             with zipfile.ZipFile(zbytes, "r") as z:
+
                 def read_csv(name):
                     try:
                         with z.open(name) as f:
@@ -1346,7 +1385,9 @@ with tab4:
             eng = get_engine()
 
             if modo.startswith("Reemplazar"):
-                exec_("TRUNCATE TABLE pedido_items, pedidos, movimientos, faltantes, productos RESTART IDENTITY CASCADE")
+                exec_(
+                    "TRUNCATE TABLE pedido_items, pedidos, movimientos, faltantes, productos RESTART IDENTITY CASCADE"
+                )
 
             with eng.begin() as c:
                 if not df_productos.empty:
